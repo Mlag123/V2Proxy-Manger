@@ -1,0 +1,14 @@
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\bin\Debug\net10.0\httpTimeOutCrash.exe
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\bin\Debug\net10.0\httpTimeOutCrash.deps.json
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\bin\Debug\net10.0\httpTimeOutCrash.runtimeconfig.json
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\bin\Debug\net10.0\httpTimeOutCrash.dll
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\bin\Debug\net10.0\httpTimeOutCrash.pdb
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.AssemblyInfoInputs.cache
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.AssemblyInfo.cs
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.csproj.CoreCompileInputs.cache
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.dll
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\refint\httpTimeOutCrash.dll
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.pdb
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\httpTimeOutCrash.genruntimeconfig.cache
+C:\Users\disw\source\repos\httpTimeOutCrash\httpTimeOutCrash\obj\Debug\net10.0\ref\httpTimeOutCrash.dll
