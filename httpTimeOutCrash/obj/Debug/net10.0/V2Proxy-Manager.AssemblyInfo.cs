@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("V2Proxy-Manager")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+aeb580f6d2bbeaa325301cbb07845f0af731d8eb")]
 [assembly: System.Reflection.AssemblyProductAttribute("V2Proxy-Manager")]
 [assembly: System.Reflection.AssemblyTitleAttribute("V2Proxy-Manager")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

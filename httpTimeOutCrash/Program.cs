@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -16,18 +17,12 @@ class HttpsProxy
     static int STALL_TIMEOUT_MS = 0;
     static int VLESS_PORT;// сколько ждём данных
     static readonly ConcurrentDictionary<string, bool> BadDomains = new();
-    // static FileReaderDomens _file = null;
-    static string[] basDomesFromFile = null;
+    static string[] blocklist = null;
+    static string[] whitelist = null;
+
+    static readonly object LogLock = new();
 
 
-    static readonly string[] NoVpnDomains = new string[]
-    {
-        "vk.com",
-        "ya.ru",
-        "yandex.com",
-        "yandex.ru",
-       "vk-portal.net"
-    };
     static async Task Main()
     {
         ConfigManager.Init();
@@ -35,9 +30,10 @@ class HttpsProxy
         VLESS_PORT = int.Parse(ConfigManager.Get("socksPort"));
 
         FileReaderDomens.init();
-       basDomesFromFile = FileReaderDomens.readBadDomens();
+        blocklist = FileReaderDomens.readBadDomens();
+        whitelist = FileReaderDomens.readWhiteList();
 
-    foreach(var domain in basDomesFromFile)
+        foreach (var domain in blocklist)
         {
             BadDomains.TryAdd(domain, true);
         }
@@ -54,25 +50,23 @@ class HttpsProxy
         }
     }
 
-    static void DrawBottomLine(string text)
-    {
-        int bottomLine = Console.WindowHeight - 1; // последняя видимая строка
-        Console.SetCursorPosition(0, bottomLine);  // ставим курсор на последнюю строку
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.Write(text.PadRight(Console.WindowWidth)); // заполняем всю строку пробелами
-        Console.ResetColor();
-        Console.SetCursorPosition(0, bottomLine - 1); // возвращаем курсор чуть выше, чтобы следующий лог шёл нормально
-    }
+
 
     static async Task HandleClient(TcpClient client)
     {
         using (client)
         {
+            client.NoDelay = true;
+            client.Client.SetSocketOption(
+            SocketOptionLevel.Socket,
+            SocketOptionName.KeepAlive,
+            true
+            );
+
             //читаем первую строку с http
             var clientStream = client.GetStream();
-            var reader = new StreamReader(clientStream, Encoding.ASCII, false, 4096, true);
+              var reader = new StreamReader(clientStream, Encoding.ASCII, false, 4096, true);
 
-            Console.ForegroundColor = ConsoleColor.Green;
 
             //проверяем, если соеденение не connect - игнорируем
             string requestLine = await reader.ReadLineAsync();
@@ -80,38 +74,37 @@ class HttpsProxy
                 return;
 
             //парсим домен, получаем хост и порт
-            string target = requestLine.Split(' ')[1]; 
+            string target = requestLine.Split(' ')[1];
             var parts = target.Split(':');
             string host = parts[0];
             int port = int.Parse(parts[1]);
 
-            Console.WriteLine($"CONNECT {host}:{port}"); //выводим на экран
+            lock (LogLock)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"CONNECT {host}:{port}"); //выводим на экран
 
+            }
+
+           
             TcpClient server = null;
 
 
-            bool isFromFile = basDomesFromFile.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+            bool isFromFile = blocklist.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+
             bool skipTunnel = host.EndsWith(".ru") || host.EndsWith(".рф") || host.EndsWith(".su")
-                              || NoVpnDomains.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+                              || whitelist.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
 
-            bool useV2Ray = !skipTunnel && BadDomains.ContainsKey(host);
+            bool useV2Ray =
+       !skipTunnel &&
+       BadDomains.Keys.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+
+            // bool useV2Ray = !skipTunnel && BadDomains.ContainsKey(host); old
 
 
-            /*
-
-                        bool skipTunnel = host.EndsWith(".ru") || host.EndsWith(".рф") || host.EndsWith(".su")
-                              || NoVpnDomains.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));*/
-
-            // bool skipTunnel = host.EndsWith(".ru")|| host.EndsWith(".рф") ||host.EndsWith(".su"); // пропускаем туннелирование для доменов .ru .рф .su
-
-            //    bool useV2Ray = !skipTunnel && BadDomains.ContainsKey(host);
-            //  bool isFromFile = basDomesFromFile.Contains(host);
 
             try
             {
-
-
-
 
 
                 if (useV2Ray) // если домен печальный, то гоним в VPN
@@ -119,6 +112,13 @@ class HttpsProxy
                     try
                     {
                         server = await ConnectViaSocks5(host, port, VLESS_PORT, 5000); // подключение через VPN
+                        //aliveSocket
+                        server.NoDelay = true;
+                        server.Client.SetSocketOption(
+                         SocketOptionLevel.Socket,
+                         SocketOptionName.KeepAlive,
+                         true
+                         );
 
                         if (isFromFile)
                         {
@@ -141,6 +141,12 @@ class HttpsProxy
                 {
                     server = new TcpClient();
                     await server.ConnectAsync(host, port); // прямое соединение
+                    server.NoDelay = true;
+                     server.Client.SetSocketOption(
+                     SocketOptionLevel.Socket,
+                     SocketOptionName.KeepAlive,
+                     true
+                     );
 
                     if (isFromFile)
                     {
@@ -161,14 +167,44 @@ class HttpsProxy
                 long bytesClientToServer = 0; //количество переданных байт на сервер
                 long bytesServerToClient = 0; //количество переданных байт клиенту
 
-                var cts = new CancellationTokenSource(STALL_TIMEOUT_MS); //проверяем соеденение с тайм-аутом
+                Task t1, t2;
+                if (useV2Ray)
+                {
+                    // 🔥 VPN → вечный туннель
+                    t1 = Pump(clientStream, serverStream, b => bytesClientToServer += b, CancellationToken.None);
+                    t2 = Pump(serverStream, clientStream, b => bytesServerToClient += b, CancellationToken.None);
 
-                var t1 = Pump(clientStream, serverStream, b => bytesClientToServer += b, cts.Token); //передаем байты от клиента на сервер
-                var t2 = Pump(serverStream, clientStream, b => bytesServerToClient += b, cts.Token); //передаем байты от сервера клиенту
+                    await Task.WhenAll(t1, t2); //было WhenAny();
+                }
+                else
+                {
+                    // direct → можно оставить таймаут
+                    var cts = new CancellationTokenSource(STALL_TIMEOUT_MS);
 
-                await Task.WhenAny(Task.WhenAll(t1, t2), Task.Delay(STALL_TIMEOUT_MS)); //не понятно что делает
+                    t1 = Pump(clientStream, serverStream, b => bytesClientToServer += b, cts.Token);
+                    t2 = Pump(serverStream, clientStream, b => bytesServerToClient += b, cts.Token);
 
-                if (bytesServerToClient == 0)
+                    await Task.WhenAny(
+                        Task.WhenAll(t1, t2),
+                        Task.Delay(STALL_TIMEOUT_MS)
+                    );
+                }
+
+                /*
+                                var cts = new CancellationTokenSource(STALL_TIMEOUT_MS); //проверяем соеденение с тайм-аутом
+
+                                var t1 = Pump(clientStream, serverStream, b => bytesClientToServer += b, cts.Token); //передаем байты от клиента на сервер
+                                var t2 = Pump(serverStream, clientStream, b => bytesServerToClient += b, cts.Token); //передаем байты от сервера клиенту
+
+                                await Task.WhenAny(Task.WhenAll(t1, t2), Task.Delay(STALL_TIMEOUT_MS)); //не понятно что делает*/
+
+
+
+
+
+                /////
+
+                if (!useV2Ray && bytesServerToClient == 0)
                 {
                     Console.ForegroundColor = ConsoleColor.DarkRed;
                     Log(host, "STALL (no payload)");
@@ -200,7 +236,7 @@ class HttpsProxy
 
     static async Task Pump(Stream input, Stream output, Action<int> onBytes, CancellationToken ct)
     {
-        byte[] buffer = new byte[8192];
+        byte[] buffer = new byte[256*1024];
 
         while (!ct.IsCancellationRequested)
         {
@@ -223,21 +259,34 @@ class HttpsProxy
     }
 
 
-   static void Log(string host, string result, ConsoleColor color = ConsoleColor.White)
+    static void Log(string host, string result, ConsoleColor color = ConsoleColor.White)
     {
-        var prevColor = Console.ForegroundColor;
-        Console.ForegroundColor = color;
-        Console.WriteLine($"{DateTime.UtcNow:o} {host} {result}");
-        Console.ForegroundColor = prevColor;
-    }
-   
-    
-      static void Log(string host, string result)
-      {
-          Console.WriteLine($"{DateTime.UtcNow:o} {host} {result}");
-      }
-    
 
+        lock (LogLock)
+        {
+            var prevColor = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            Console.WriteLine($"{DateTime.UtcNow:o} {host} {result}");
+            Console.ForegroundColor = prevColor;
+
+        }
+
+      
+    }
+
+
+    static void Log(string host, string result)
+    {
+        lock (LogLock)
+        {
+
+            Console.WriteLine($"{DateTime.UtcNow:o} {host} {result}");
+
+        }
+
+    }
+
+    //я боюсь пытатся понять как оно работает
     // SOCKS5 connect с таймаутом для Windows
     static async Task<TcpClient> ConnectViaSocks5(
         string host, int port,
@@ -245,6 +294,8 @@ class HttpsProxy
         int timeoutMs = 5000,
         string socksHost = "127.0.0.1")
     {
+
+    
         var client = new TcpClient();
         using var cts = new CancellationTokenSource(timeoutMs);
         await client.ConnectAsync(socksHost, socksPort);
@@ -276,5 +327,54 @@ class HttpsProxy
             throw new Exception("SOCKS5 connect failed");
 
         return client;
+    }
+    static void DrawBottomLine(string text)
+    {
+        int bottomLine = Console.WindowHeight - 1; // последняя видимая строка
+        Console.SetCursorPosition(0, bottomLine);  // ставим курсор на последнюю строку
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write(text.PadRight(Console.WindowWidth)); // заполняем всю строку пробелами
+        Console.ResetColor();
+        Console.SetCursorPosition(0, bottomLine - 1); // возвращаем курсор чуть выше, чтобы следующий лог шёл нормально
+    }
+
+    string ReadLine(NetworkStream stream)
+    {
+        var ms = new MemoryStream();
+        while (true)
+        {
+            int b = stream.ReadByte();
+            if (b == -1) break;
+            ms.WriteByte((byte)b);
+            if (ms.Length >= 2)
+            {
+                var buf = ms.GetBuffer();
+                if (buf[ms.Length - 2] == '\r' && buf[ms.Length - 1] == '\n')
+                    break;
+            }
+        }
+        return Encoding.ASCII.GetString(ms.GetBuffer(), 0, (int)ms.Length - 2);
+    }
+    static async Task<string> ReadLineAsync(NetworkStream stream)
+    {
+        var ms = new MemoryStream();
+        byte[] buffer = new byte[1];
+
+        while (true)
+        {
+            int read = await stream.ReadAsync(buffer, 0, 1);
+            if (read == 0) break;
+
+            ms.WriteByte(buffer[0]);
+
+            if (ms.Length >= 2)
+            {
+                var buf = ms.GetBuffer();
+                if (buf[ms.Length - 2] == '\r' && buf[ms.Length - 1] == '\n')
+                    break;
+            }
+        }
+
+        return Encoding.ASCII.GetString(ms.GetBuffer(), 0, (int)ms.Length - 2);
     }
 }
